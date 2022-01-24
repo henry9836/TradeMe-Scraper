@@ -1,0 +1,5 @@
+This is an example of a wordlist
+Sealed
+Gift
+New
+Unfurnished
