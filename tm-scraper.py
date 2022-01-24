@@ -17,6 +17,8 @@ scrapedListings = []
 
 def processListings(webpage):
     global scrapedListings, wordlist
+    #Go into each listing one by one
+    
 
 async def scrap():
     global url, scrapedListings
@@ -39,6 +41,7 @@ async def scrap():
     webpageContent = await webpage.content()
     print ("[+] Gathering inital infomation from TradeMe...")
     soup = BeautifulSoup(webpageContent, 'html.parser')
+
     maxPageNumber = int(soup.find("a", {"aria-label" : lastPageLinkPatten}).get_text())
     resultsNumber = soup.find("h3", {"class" : "tm-search-header-result-count__heading ng-star-inserted"}).get_text()
     resultsNumber = resultsNumber.replace("Showing ", '')
@@ -47,6 +50,7 @@ async def scrap():
     resultsNumber = resultsNumber.replace("\n", '')
 
     progressAnimation = ["|", "/", "-","\\"]
+
     #Scrap
     for i in range(1, maxPageNumber + 1):
         url = pagePattern.sub('&page=' + str(i), url)
@@ -54,7 +58,6 @@ async def scrap():
         sys.stdout.write("\r{}".format("[" + progressAnimation[i % len(progressAnimation)] +"] {" + str(ceil((i/maxPageNumber)*100)) + "%} Listings Saved: " + str(len(scrapedListings)) + " /" + resultsNumber))
         sys.stdout.flush()
         processListings(webpage)
-        sleep(1)
 
     await browser.close()
 
