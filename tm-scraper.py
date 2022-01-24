@@ -74,7 +74,6 @@ def loadWordlist():
                 word = word.strip('\n')
                 word = word.strip('\r')
                 wordlist.append(word)
-            #scrap()
             asyncio.get_event_loop().run_until_complete(scrap())
         else:
             help("Wordlist could not be found")
@@ -90,7 +89,7 @@ def main():
     #https://www.trademe.co.nz/a/property/residential/rent/auckland/auckland-city/search?price_min=375&price_max=450&page=2
     urlPattern = re.compile(r"^(http|https)://www.trademe.co.nz/", re.IGNORECASE)
 
-    if (urlPattern.match(url)):
+    if urlPattern.match(url):
         url = pagePattern.sub('', url)
         loadWordlist()
     else:
@@ -98,7 +97,7 @@ def main():
     
 
 def help(info=""):
-    if (info != ""):
+    if info != "":
         print("[!] " + info + "\n")
     print("""
     Usage: tm-scraper.py url wordlist
