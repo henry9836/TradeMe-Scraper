@@ -7,6 +7,7 @@ import os
 import asyncio
 from pyppeteer import launch
 from bs4 import BeautifulSoup
+from xlwt import Workbook
 from time import sleep
 from math import ceil
 
@@ -22,6 +23,7 @@ pagePattern = re.compile(r"(&|\?)page=\d*", re.IGNORECASE)
 propertyListingPattern = re.compile(r"tm-property-.*__link.*", re.IGNORECASE)
 marketplaceListingPattern = re.compile(r"tm-marketplace-.*--link.*", re.IGNORECASE)
 scrapedListings = []
+wb = Workbook()
 
 async def processListings(browser, soup):
     #Go into each listing one by one
@@ -36,9 +38,15 @@ async def processListings(browser, soup):
         if "listing" in i['href']:
             links.append("https://www.trademe.co.nz" + i['href'])
 
+    #Create progress bar ▓░
+    progressBar = "error"
+
     #Go into each link and process
     listingPage = await browser.newPage()
+    iterator = 0
     for link in links:
+        iterator += 1
+        progressBar = ("▓" * iterator) + ("░" * (len(links) - iterator))
         listing = Listing()
         await listingPage.goto(link)
         listingContent = await listingPage.content()
@@ -47,23 +55,41 @@ async def processListings(browser, soup):
         infoText = soupListing.find("div", {"class": "tm-property-listing-body__container"}).get_text()
         #print(infoText)
         #print(wordlist)
-        print(link)
+        #print(link)
         infoTextLower = infoText.lower()
         for word in wordlist:
+            print(progressBar)
             word = word.lower()
             if word in infoTextLower:
                 #Extract info
                 listing.link = link
                 listing.title = soupListing.find("h2", {"class": "tm-property-listing-body__title p-h1"}).get_text()
-                listing.cost = soupListing.find("h2", {"class": "tm-property-listing-body__price ng-star-inserted"})
-                listing.address = soupListing.find("h1", {"class": "tm-property-listing-body__location p-h3 ng-star-inserted"})
+                listing.cost = soupListing.find("h2", {"class": "tm-property-listing-body__price"}).get_text()
+                listing.address = soupListing.find("h1", {"class": "tm-property-listing-body__location p-h3"}).get_text()
                 scrapedListings.append(listing)
                 break
-
-    sleep(5)
+        
     await listingPage.close()
     
-    
+def exportToSheet():
+    global scrapedListings, wb
+    sheet = wb.add_sheet('Listings')
+    #sheet.write(v, h, data)
+    sheet.write(0, 0, "Title")
+    sheet.write(0, 1, "Cost")
+    sheet.write(0, 2, "Address")
+    sheet.write(0, 3, "Link")
+    iterator = 1
+    for listing in scrapedListings:
+        #Title, Cost, Address, Link
+        sheet.write(iterator, 0, listing.title)
+        sheet.write(iterator, 1, listing.cost)
+        sheet.write(iterator, 2, listing.address)
+        sheet.write(iterator, 3, listing.link)
+        iterator += 1
+    wb.save('scraped_results.xls')
+
+
 
 async def scrap():
     global url, scrapedListings, wordlist
@@ -90,10 +116,10 @@ async def scrap():
     #Parse Info
     print("[+] Gathering inital infomation from TradeMe...")
     soup = BeautifulSoup(webpageContent, 'html.parser')
-    if soup.find("h3", {"class" : "tm-search-header-result-count__heading ng-star-inserted"}) is None:
-        print("NONE DETECTED:")
-        print(webpageContent)
-        sleep(10)
+    try:
+        soup.find("h3", {"class" : "tm-search-header-result-count__heading ng-star-inserted"})
+    except:
+        print("[!] ERROR COULD NOT FIND tm-search-header-result-count__heading ng-star-inserted Class")
     maxPageNumber = int(soup.find("a", {"aria-label" : lastPageLinkPatten}).get_text())
     resultsNumber = soup.find("h3", {"class" : "tm-search-header-result-count__heading ng-star-inserted"}).get_text()
     resultsNumber = resultsNumber.replace("Showing ", '')
@@ -105,14 +131,19 @@ async def scrap():
 
     #Scrap
     for i in range(1, maxPageNumber + 1):
-        url = pagePattern.sub('&page=' + str(i), url)
-        await webpage.goto(url)
-        print(f"\r[{progressAnimation[i % len(progressAnimation)]}] {{{i * 100 // maxPageNumber:>2}%}} "f"Listings Saved: {len(scrapedListings)} /{resultsNumber}", end="", flush=True)
-        await processListings(browser, soup)
+        try:
+            url = pagePattern.sub('&page=' + str(i), url)
+            await webpage.goto(url)
+            print(f"\r[{progressAnimation[i % len(progressAnimation)]}] {{{i * 100 // maxPageNumber:>2}%}} "f"Listings Saved: {len(scrapedListings)} /{resultsNumber}", end="", flush=True)
+            await processListings(browser, soup)
+        except(err):
+            print("[!] Could not process listings!")
+            print(err)
 
     await browser.close()
 
-
+    #Convert to csv
+    exportToSheet()
 
 
 def loadWordlist():
