@@ -8,8 +8,12 @@ import asyncio
 from pyppeteer import launch
 from bs4 import BeautifulSoup
 from xlwt import Workbook
-from time import sleep
 from math import ceil
+import asyncio
+
+#DEBUG
+from random import randint
+from time import sleep
 
 class Listing:
     link = "err"
@@ -19,15 +23,48 @@ class Listing:
 
 wordlist = []
 url = ""
+maxConnThreads = 5
 pagePattern = re.compile(r"(&|\?)page=\d*", re.IGNORECASE)
 propertyListingPattern = re.compile(r"tm-property-.*__link.*", re.IGNORECASE)
 marketplaceListingPattern = re.compile(r"tm-marketplace-.*--link.*", re.IGNORECASE)
 scrapedListings = []
 wb = Workbook()
+browser = None
+scrapedListingLock = asyncio.Lock()
 
-async def processListings(browser, soup):
+import nest_asyncio
+nest_asyncio.apply()
+
+async def addToList(listing):
+    async with scrapedListingLock:
+        scrapedListings.append(listing)
+        await asyncio.sleep(0)
+
+async def processListingsThread(link):
+    global browser, scrapedListings, wordlist
+    listingPage = await browser.newPage()
+    listing = Listing()
+    await listingPage.goto(link)
+    listingContent = await listingPage.content()
+    #Check if there is a match with wordlist
+    soupListing = BeautifulSoup(listingContent, 'html.parser')
+    infoText = soupListing.find("div", {"class": "tm-property-listing-body__container"}).get_text()
+    infoTextLower = infoText.lower()
+    for word in wordlist:
+        word = word.lower()
+        if word in infoTextLower:
+            #Extract info
+            listing.link = link
+            listing.title = soupListing.find("h2", {"class": "tm-property-listing-body__title p-h1"}).get_text()
+            listing.cost = str(soupListing.find("h2", {"class": "tm-property-listing-body__price"}).get_text()).replace(' per week', '')
+            listing.address = soupListing.find("h1", {"class": "tm-property-listing-body__location p-h3"}).get_text()
+            await addToList(listing)
+            break
+    await listingPage.close()
+
+async def processListings(soup):
     #Go into each listing one by one
-    global scrapedListings, wordlist
+    global scrapedListings, wordlist, threadpool, browser, maxConnThreads
     
     #Extract all links to listings on this webpage
     links = []
@@ -42,37 +79,39 @@ async def processListings(browser, soup):
     progressBar = "error"
 
     #Go into each link and process
-    listingPage = await browser.newPage()
     iterator = 0
+    #background_loop = asyncio.new_event_loop()
+    tasks = []
+        
+    #loop = asyncio.get_event_loop()
     for link in links:
         iterator += 1
         progressBar = ("▓" * iterator) + ("░" * (len(links) - iterator))
-        listing = Listing()
-        await listingPage.goto(link)
-        listingContent = await listingPage.content()
-        #Check if there is a match with wordlist
-        soupListing = BeautifulSoup(listingContent, 'html.parser')
-        infoText = soupListing.find("div", {"class": "tm-property-listing-body__container"}).get_text()
-        #print(infoText)
-        #print(wordlist)
-        #print(link)
-        infoTextLower = infoText.lower()
-        for word in wordlist:
-            print(progressBar)
-            word = word.lower()
-            if word in infoTextLower:
-                #Extract info
-                listing.link = link
-                listing.title = soupListing.find("h2", {"class": "tm-property-listing-body__title p-h1"}).get_text()
-                listing.cost = soupListing.find("h2", {"class": "tm-property-listing-body__price"}).get_text()
-                listing.address = soupListing.find("h1", {"class": "tm-property-listing-body__location p-h3"}).get_text()
-                scrapedListings.append(listing)
-                break
-        
-    await listingPage.close()
-    
+        #tasks.append(processListingsThread(link))
+        print(progressBar)
+        #Works
+        tasks.append(asyncio.create_task(processListingsThread(link)))
+        #Rate Limit
+        if ((iterator % maxConnThreads) == 0):
+            await asyncio.sleep(5)
+
+
+    while True:
+        breakout = True
+        for task in tasks:
+            print(task.done())
+            if (task.done() != True):
+                breakout = False
+        if breakout == True:
+            break
+        else:
+            await asyncio.sleep(1)
+    print("DONE! {" + str(len(scrapedListings)) + "} / " + str(len(tasks)))
+
 def exportToSheet():
     global scrapedListings, wb
+    print("[+] Exporting Results...")
+
     sheet = wb.add_sheet('Listings')
     #sheet.write(v, h, data)
     sheet.write(0, 0, "Title")
@@ -80,19 +119,23 @@ def exportToSheet():
     sheet.write(0, 2, "Address")
     sheet.write(0, 3, "Link")
     iterator = 1
+    
     for listing in scrapedListings:
         #Title, Cost, Address, Link
         sheet.write(iterator, 0, listing.title)
-        sheet.write(iterator, 1, listing.cost)
+        sheet.write(iterator, 1, str(listing.cost))
         sheet.write(iterator, 2, listing.address)
         sheet.write(iterator, 3, listing.link)
         iterator += 1
+    
     wb.save('scraped_results.xls')
+
+    print("[+] Done.")
 
 
 
 async def scrap():
-    global url, scrapedListings, wordlist
+    global url, scrapedListings, wordlist, browser
 
     url += "&page=1"
     lastPageLinkPatten = re.compile("Last page.*")
@@ -110,8 +153,6 @@ async def scrap():
     webpage = await browser.newPage()
     await webpage.goto(url)
     webpageContent = await webpage.content()
-    #soup = BeautifulSoup(webpageContent, 'html.parser')
-    #print(soup.find("a", {"aria-label" : lastPageLinkPatten}).get_text())
 
     #Parse Info
     print("[+] Gathering inital infomation from TradeMe...")
@@ -135,7 +176,8 @@ async def scrap():
             url = pagePattern.sub('&page=' + str(i), url)
             await webpage.goto(url)
             print(f"\r[{progressAnimation[i % len(progressAnimation)]}] {{{i * 100 // maxPageNumber:>2}%}} "f"Listings Saved: {len(scrapedListings)} /{resultsNumber}", end="", flush=True)
-            await processListings(browser, soup)
+            await processListings(soup)
+            break
         except(err):
             print("[!] Could not process listings!")
             print(err)
