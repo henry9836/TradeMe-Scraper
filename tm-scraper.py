@@ -76,8 +76,8 @@ async def outputDisplay():
         progressAnimation = "|/-\\"
         while True:
             #Display
-            #print('\n' * 100)
-            #print(banner)
+            print('\n' * 100)
+            print(banner)
             print("Processing: " + url)
             print(f"\r[{progressAnimation[displayLoop % len(progressAnimation)]}] {{{currentPage * 100 // maxPageNumber:>2}%}} "f"Listings Saved: {len(scrapedListings)}/{amountOfResults}")
             print(progressBar)
