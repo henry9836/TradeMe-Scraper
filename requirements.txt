@@ -1,0 +1,5 @@
+asyncio
+pyppeteer
+bs4
+xlwt
+nest_asyncio
