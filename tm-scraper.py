@@ -119,7 +119,7 @@ def processListingsThread(link, iterator):
         #Fix weird link
         link = link.replace('trademe.co.nzproperty', 'trademe.co.nz/a/property')
         browser.get(link)
-        #webdriver.add_argument('--headless')
+        webdriver.add_argument('--headless')
 
         #Check if there is a match with wordlist
         soupListing = BeautifulSoup(browser.page_source, 'html.parser')
@@ -246,7 +246,7 @@ def scrap():
     print("[+] Navigating to TradeMe...")
     browser.get(url)
     browser.find_element_by_tag_name('body').send_keys(Keys.COMMAND + 't') 
-    #webdriver.add_argument('--headless')
+    webdriver.add_argument('--headless')
 
     #Parse Info
     print("[+] Gathering inital infomation from TradeMe...")
@@ -269,8 +269,6 @@ def scrap():
     except:
         amountOfResults = 1
 
-
-    #asyncio.create_task(outputDisplay())
     displayThread = threading.Thread(target=outputDisplay, args=())
     displayThread.start()
 
@@ -283,9 +281,6 @@ def scrap():
             currentPage = i
             url = pagePattern.sub('&page=' + str(i), url)
             browser.get(url)
-            #BREAK
-            if i == 10:
-                break
         except(err):
             print("[!] Could not process listings!")
             print(err)
