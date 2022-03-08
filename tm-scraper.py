@@ -6,7 +6,7 @@ import re
 import os
 import threading
 from selenium import webdriver
-from selenium.webdriver.common.keys import Keys
+from selenium.webdriver.chrome.options import Options
 from bs4 import BeautifulSoup
 from xlwt import Workbook
 from math import ceil
@@ -21,11 +21,15 @@ class Listing:
     cost = "err"
     url = "err"
 
-browser = webdriver.Chrome()
-wordlist = []
-url = ""
+#WEB SETTINGS
+chrome_options = Options()
+chrome_options.add_argument("--headless")
+browser = webdriver.Chrome(options=chrome_options)
 maxConnThreads = 20
 delayBetweenSearch = 15
+
+wordlist = []
+url = ""
 pagePattern = re.compile(r"(&|\?)page=\d*", re.IGNORECASE)
 propertyListingPattern = re.compile(r"tm-property-.*__link.*", re.IGNORECASE)
 marketplaceListingPattern = re.compile(r"tm-marketplace-.*--link.*", re.IGNORECASE)
@@ -108,18 +112,18 @@ def addToList(listing):
     scrapedListingLock = False
 
 def processListingsThread(link, iterator):
-    global scrapedListings, wordlist
+    global scrapedListings, wordlist, chrome_options
     
     updateDisplay(2, iterator)
     #Apparently Selenium Doesn't Support MultiThreading...
-    browser = webdriver.Chrome()
+    browser = webdriver.Chrome(options=chrome_options)
+    #browser = webdriver.Chrome()
     try:
         listing = Listing()
 
         #Fix weird link
         link = link.replace('trademe.co.nzproperty', 'trademe.co.nz/a/property')
         browser.get(link)
-        webdriver.add_argument('--headless')
 
         #Check if there is a match with wordlist
         soupListing = BeautifulSoup(browser.page_source, 'html.parser')
@@ -230,7 +234,7 @@ def exportToSheet():
 
 
 def scrap():
-    global url, scrapedListings, wordlist, browser, currentPage, maxPageNumber, amountOfResults, exitFlag
+    global url, scrapedListings, wordlist, browser, currentPage, maxPageNumber, amountOfResults, exitFlag, chrome_options
 
     url += "&page=1"
     lastPageLinkPatten = re.compile("Last page.*")
@@ -245,8 +249,6 @@ def scrap():
     # Open a new browser page
     print("[+] Navigating to TradeMe...")
     browser.get(url)
-    browser.find_element_by_tag_name('body').send_keys(Keys.COMMAND + 't') 
-    webdriver.add_argument('--headless')
 
     #Parse Info
     print("[+] Gathering inital infomation from TradeMe...")
