@@ -4,12 +4,12 @@
 import sys
 import re
 import os
-import asyncio
-from pyppeteer import launch
+import threading
+from selenium import webdriver
+from selenium.webdriver.common.keys import Keys
 from bs4 import BeautifulSoup
 from xlwt import Workbook
 from math import ceil
-import asyncio
 
 #DEBUG
 from random import randint
@@ -21,19 +21,20 @@ class Listing:
     cost = "err"
     url = "err"
 
+browser = webdriver.Chrome()
 wordlist = []
 url = ""
 maxConnThreads = 20
-delayBetweenSearch = 3
+delayBetweenSearch = 15
 pagePattern = re.compile(r"(&|\?)page=\d*", re.IGNORECASE)
 propertyListingPattern = re.compile(r"tm-property-.*__link.*", re.IGNORECASE)
 marketplaceListingPattern = re.compile(r"tm-marketplace-.*--link.*", re.IGNORECASE)
 scrapedListings = []
 wb = Workbook()
-browser = None
-scrapedListingLock = asyncio.Lock()
-displayLock = asyncio.Lock()
-displayLoopLock = asyncio.Lock()
+scrapedListingLock = False
+displayLock = False
+displayLoopLock = False
+exitFlag = False
 progressBar = ""
 currentPage = 0
 maxPageNumber = 1
@@ -57,87 +58,92 @@ banner = '''
 
 '''
 
-def disable_timeout_pyppeteer():
-    import pyppeteer.connection
-    original_method = pyppeteer.connection.websockets.client.connect
-    def new_method(*args, **kwargs):
-        kwargs['ping_interval'] = None
-        kwargs['ping_timeout'] = None
-        return original_method(*args, **kwargs)
-
-    pyppeteer.connection.websockets.client.connect = new_method
-
-import nest_asyncio
-nest_asyncio.apply()
-
-async def outputDisplay():
-    global scrapedListings, maxConnThreads, progressBar, banner, currentPage, maxPageNumber, amountOfResults, displayLoop, url
-    async with displayLoopLock:
-        progressAnimation = "|/-\\"
-        while True:
-            #Display
-            print('\n' * 100)
-            print(banner)
-            print("Processing: " + url)
-            print(f"\r[{progressAnimation[displayLoop % len(progressAnimation)]}] {{{currentPage * 100 // maxPageNumber:>2}%}} "f"Listings Saved: {len(scrapedListings)}/{amountOfResults}")
-            print(progressBar)
-            displayLoop += 1
-            await asyncio.sleep(1)
+def outputDisplay():
+    global scrapedListings, maxConnThreads, progressBar, banner, currentPage, maxPageNumber, amountOfResults, displayLoop, url, displayLoopLock, exitFlag
+    while displayLoopLock == True:
+        pass
+    displayLoopLock = True
+    progressAnimation = "|/-\\"
+    while True:
+        #Display
+        if exitFlag:
+            return
+        print('\n' * 100)
+        print(banner)
+        print("Processing: " + url)
+        print("Page: " + str(currentPage))
+        print(f"\r[{progressAnimation[displayLoop % len(progressAnimation)]}] {{{currentPage * 100 // maxPageNumber:>2}%}} "f"Listings Saved: {len(scrapedListings)}/{amountOfResults}")
+        print(progressBar)
+        displayLoop += 1
+        sleep(1)
+    displayLoopLock = False
 
 
 #Banner
 #Overall progress with spinny thang
 #Progress bar [░▒▓]
-#Type = 1 - update pending, 2 - update searched, 3 - ERROR
-async def updateDisplay(arg_type, arg_num):
-    global scrapedListings, maxConnThreads, progressBar, banner, currentPage, maxPageNumber, amountOfResults, displayLoop
-    async with displayLock:
-        await asyncio.sleep(0)
-        async with scrapedListingLock:
-            #Process Request
-            if (arg_type == 1):
-                progressBar = progressBar[:arg_num] + "▒" + progressBar[arg_num+1:]
-            elif (arg_type == 2):
-                progressBar = progressBar[:arg_num] + "▓" + progressBar[arg_num+1:]
-            elif (arg_type == 3):
-                progressBar = progressBar[:arg_num] + "!" + progressBar[arg_num+1:]
-            
-            await asyncio.sleep(0)
+#Type = 1 - update pending, 2 - update searching, 3 - ERROR
+def updateDisplay(arg_type, arg_num):
+    global scrapedListings, maxConnThreads, progressBar, banner, currentPage, maxPageNumber, amountOfResults, displayLoop, displayLock
+    while displayLock == True:
+        pass
+    displayLock = True
+    #Process Request
+    if (arg_type == 1):
+        progressBar = progressBar[:arg_num] + "░" + progressBar[arg_num+1:]
+    elif (arg_type == 2):
+        progressBar = progressBar[:arg_num] + "▒" + progressBar[arg_num+1:]
+    elif (arg_type == 3):
+        progressBar = progressBar[:arg_num] + "▓" + progressBar[arg_num+1:]
+    elif (arg_type == 4):
+        progressBar = progressBar[:arg_num] + "!" + progressBar[arg_num+1:]
+    displayLock = False
 
-async def addToList(listing):
-    async with scrapedListingLock:
-        scrapedListings.append(listing)
-        await asyncio.sleep(0)
+def addToList(listing):
+    global scrapedListingLock
+    while scrapedListingLock == True:
+        pass
+    scrapedListingLock = True
+    scrapedListings.append(listing)
+    scrapedListingLock = False
 
-async def processListingsThread(link, iterator):
-    global scrapedListings, wordlist, browser
-    #try:
-    listingPage = await browser.newPage()
-    listing = Listing()
-    #Fix weird link
-    link = link.replace('trademe.co.nzproperty', 'trademe.co.nz/a/property')
-    await listingPage.goto(link)
-    listingContent = await listingPage.content()
-    #Check if there is a match with wordlist
-    soupListing = BeautifulSoup(listingContent, 'html.parser')
-    infoText = soupListing.find("div", {"class": "tm-property-listing-body__container"}).get_text()
-    infoTextLower = infoText.lower()
-    for word in wordlist:
-        word = word.lower()
-        if word in infoTextLower:
-            #Extract info
-            listing.link = link
-            listing.title = soupListing.find("h2", {"class": "tm-property-listing-body__title p-h1"}).get_text()
-            listing.cost = str(soupListing.find("h2", {"class": "tm-property-listing-body__price"}).get_text()).replace(' per week', '')
-            listing.url = soupListing.find("h1", {"class": "tm-property-listing-body__location p-h3"}).get_text()
-            await addToList(listing)
-            break
-    await listingPage.close()
-    await updateDisplay(2, iterator)
-    #except:
-       # await updateDisplay(3, iterator)
+def processListingsThread(link, iterator):
+    global scrapedListings, wordlist
+    
+    updateDisplay(2, iterator)
+    #Apparently Selenium Doesn't Support MultiThreading...
+    browser = webdriver.Chrome()
+    try:
+        listing = Listing()
 
-async def processListings(soup):
+        #Fix weird link
+        link = link.replace('trademe.co.nzproperty', 'trademe.co.nz/a/property')
+        browser.get(link)
+        #webdriver.add_argument('--headless')
+
+        #Check if there is a match with wordlist
+        soupListing = BeautifulSoup(browser.page_source, 'html.parser')
+        browser.close()
+        browser = None
+        infoText = soupListing.find("div", {"class": "tm-property-listing-body__container"}).get_text()
+        infoTextLower = infoText.lower()
+        for word in wordlist:
+            word = word.lower()
+            if word in infoTextLower:
+                #Extract info
+                listing.link = link
+                listing.title = soupListing.find("h2", {"class": "tm-property-listing-body__title p-h1"}).get_text()
+                listing.cost = str(soupListing.find("h2", {"class": "tm-property-listing-body__price"}).get_text()).replace(' per week', '')
+                listing.url = soupListing.find("h1", {"class": "tm-property-listing-body__location p-h3"}).get_text()
+                addToList(listing)
+                break
+        updateDisplay(3, iterator)
+    except:
+        updateDisplay(4, iterator)
+    if browser is not None:
+        browser.close()
+
+def processListings(soup):
     #Go into each listing one by one
     global maxConnThreads, progressBar, delayBetweenSearch
     
@@ -145,6 +151,7 @@ async def processListings(soup):
     links = []
     dirtyList = soup.find_all("a", {propertyListingPattern})
     dirtyList = dirtyList + soup.find_all("a", {propertyListingPattern})
+
     #Filter Results
     for i in dirtyList:
         if "listing" in i['href']:
@@ -157,27 +164,25 @@ async def processListings(soup):
     iterator = 0
     tasks = []
     for link in links:
-        #Works
-        tasks.append(asyncio.create_task(processListingsThread(link, iterator)))
-        await updateDisplay(1, iterator)
+        #Thread Spawn
+        thread = threading.Thread(target=processListingsThread, args=(link, iterator,))
+        thread.start()
+        tasks.append(thread)
 
         iterator += 1
         #Rate Limit
         if ((iterator % maxConnThreads) == 0):
-            await asyncio.sleep(5)
-
+            sleep(delayBetweenSearch)
 
     while True:
         breakout = True
         for task in tasks:
-            #print(task.done())
-            if (task.done() != True):
+            if (task.is_alive() == True):
                 breakout = False
         if breakout == True:
             break
         else:
-            await asyncio.sleep(1)
-    await asyncio.sleep(delayBetweenSearch)
+            sleep(1)
 
 def exportToSheet():
     global scrapedListings, wb
@@ -186,9 +191,19 @@ def exportToSheet():
 
     print("Before: " + str(len(scrapedListings)))
 
-    scrapedListings = list(set(scrapedListings))
+    filterdListings = []
+    filterdListings.append(scrapedListings[0])
 
-    print("After: " + str(len(scrapedListings)))
+    for listing in scrapedListings:
+        uniqueListing = True
+        for filteredlisting in filterdListings:
+            if (filteredlisting.url == listing.url):
+                uniqueListing = False
+                break
+        if uniqueListing == True:
+            filterdListings.append(listing)
+
+    print("After: " + str(len(filterdListings)))
 
     print("[+] Exporting Results...")
 
@@ -200,7 +215,7 @@ def exportToSheet():
     sheet.write(0, 3, "Link")
     iterator = 1
     
-    for listing in scrapedListings:
+    for listing in filterdListings:
         #Title, Cost, url, Link
         sheet.write(iterator, 0, listing.title)
         sheet.write(iterator, 1, str(listing.cost))
@@ -214,8 +229,8 @@ def exportToSheet():
 
 
 
-async def scrap():
-    global url, scrapedListings, wordlist, browser, currentPage, maxPageNumber, amountOfResults
+def scrap():
+    global url, scrapedListings, wordlist, browser, currentPage, maxPageNumber, amountOfResults, exitFlag
 
     url += "&page=1"
     lastPageLinkPatten = re.compile("Last page.*")
@@ -226,50 +241,60 @@ async def scrap():
 
     # Launch the browser
     print ("[+] Launching browser...")
-    browser = await launch({"headless": False})
-    
+
     # Open a new browser page
     print("[+] Navigating to TradeMe...")
-    webpage = await browser.newPage()
-    await webpage.goto(url)
-    webpageContent = await webpage.content()
+    browser.get(url)
+    browser.find_element_by_tag_name('body').send_keys(Keys.COMMAND + 't') 
+    #webdriver.add_argument('--headless')
 
     #Parse Info
     print("[+] Gathering inital infomation from TradeMe...")
-    soup = BeautifulSoup(webpageContent, 'html.parser')
+    soup = BeautifulSoup(browser.page_source, 'html.parser')
     try:
         soup.find("h3", {"class" : "tm-search-header-result-count__heading ng-star-inserted"})
     except:
         print("[!] ERROR COULD NOT FIND tm-search-header-result-count__heading ng-star-inserted Class")
-    maxPageNumber = soup.find("a", {"aria-label" : lastPageLinkPatten}).get_text()
-    maxPageNumber = int(re.sub('\D', '', maxPageNumber))
-    amountOfResults = soup.find("h3", {"class" : "tm-search-header-result-count__heading ng-star-inserted"}).get_text()
-    amountOfResults = int(re.sub('\D', '', amountOfResults))
+        exit(0)
 
-    asyncio.create_task(outputDisplay())
-    
+    #Single Page Result
+    try:
+        maxPageNumber = soup.find("a", {"aria-label" : lastPageLinkPatten}).get_text()
+        maxPageNumber = int(re.sub('\D', '', maxPageNumber))
+    except:
+        maxPageNumber = 1
+    try:
+        amountOfResults = soup.find("h3", {"class" : "tm-search-header-result-count__heading ng-star-inserted"}).get_text()
+        amountOfResults = int(re.sub('\D', '', amountOfResults))
+    except:
+        amountOfResults = 1
+
+
+    #asyncio.create_task(outputDisplay())
+    displayThread = threading.Thread(target=outputDisplay, args=())
+    displayThread.start()
+
     #Scrap
-    for i in range(1, maxPageNumber + 1):
+    currentPage = 1
+    for i in range(2, maxPageNumber + 1):
         try:
-            print(url)
+            soup = BeautifulSoup(browser.page_source, 'html.parser')
+            processListings(soup)
             currentPage = i
             url = pagePattern.sub('&page=' + str(i), url)
-            print(url)
-            await asyncio.sleep(10)
-            await webpage.goto(url)
-            webpageContent = await webpage.content()
-            soup = BeautifulSoup(webpageContent, 'html.parser')
-            await processListings(soup)
-            if i == 4:
+            browser.get(url)
+            #BREAK
+            if i == 10:
                 break
         except(err):
             print("[!] Could not process listings!")
             print(err)
 
-    await browser.close()
+    browser.close()
 
     #Convert to csv
     exportToSheet()
+    exitFlag = True
 
 
 def loadWordlist():
@@ -281,8 +306,9 @@ def loadWordlist():
             for word in wordlistFile:
                 word = word.strip('\n')
                 word = word.strip('\r')
-                wordlist.append(word)
-            asyncio.get_event_loop().run_until_complete(scrap())
+                if word != "":
+                    wordlist.append(word)
+            scrap()
         else:
             help("Wordlist could not be found")
     else:
