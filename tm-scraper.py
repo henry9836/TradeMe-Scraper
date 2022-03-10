@@ -316,7 +316,7 @@ def loadWordlist():
                 if word != "":
                     wordlist.append(word)
             #Load Blacklist
-            if len(sys.argv > 3):
+            if len(sys.argv) > 3:
                 wordlistPath = sys.argv[3]
                 if os.path.isfile(wordlistPath):
                     wordlistFile = open(wordlistPath, "r")
