@@ -2,4 +2,3 @@ asyncio
 selenium
 bs4
 xlwt
-nest_asyncio

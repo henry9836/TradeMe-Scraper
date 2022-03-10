@@ -29,6 +29,7 @@ maxConnThreads = 20
 delayBetweenSearch = 15
 
 wordlist = []
+blacklist = []
 url = ""
 pagePattern = re.compile(r"(&|\?)page=\d*", re.IGNORECASE)
 propertyListingPattern = re.compile(r"tm-property-.*__link.*", re.IGNORECASE)
@@ -112,7 +113,7 @@ def addToList(listing):
     scrapedListingLock = False
 
 def processListingsThread(link, iterator):
-    global scrapedListings, wordlist, chrome_options
+    global scrapedListings, wordlist, blacklist, chrome_options
     
     updateDisplay(2, iterator)
     #Apparently Selenium Doesn't Support MultiThreading...
@@ -134,13 +135,21 @@ def processListingsThread(link, iterator):
         for word in wordlist:
             word = word.lower()
             if word in infoTextLower:
-                #Extract info
-                listing.link = link
-                listing.title = soupListing.find("h2", {"class": "tm-property-listing-body__title p-h1"}).get_text()
-                listing.cost = str(soupListing.find("h2", {"class": "tm-property-listing-body__price"}).get_text()).replace(' per week', '')
-                listing.url = soupListing.find("h1", {"class": "tm-property-listing-body__location p-h3"}).get_text()
-                addToList(listing)
-                break
+                blacklistedWordPresent = False
+                for badword in blacklist:
+                    if badword in infoTextLower:
+                        blacklistedWordPresent = True
+                        break
+                if blacklistedWordPresent == False:
+                    #Extract info
+                    listing.link = link
+                    listing.title = soupListing.find("h2", {"class": "tm-property-listing-body__title p-h1"}).get_text()
+                    listing.cost = str(soupListing.find("h2", {"class": "tm-property-listing-body__price"}).get_text()).replace(' per week', '')
+                    listing.url = soupListing.find("h1", {"class": "tm-property-listing-body__location p-h3"}).get_text()
+                    addToList(listing)
+                    break
+                else:
+                    break
         updateDisplay(3, iterator)
     except:
         updateDisplay(4, iterator)
@@ -295,8 +304,9 @@ def scrap():
 
 
 def loadWordlist():
-    global wordlist, wordlistPattern
+    global wordlist, wordlistPattern, blacklist
     if len(sys.argv) > 2:
+        #Load Wordlist
         wordlistPath = sys.argv[2]
         if os.path.isfile(wordlistPath):
             wordlistFile = open(wordlistPath, "r")
@@ -305,6 +315,17 @@ def loadWordlist():
                 word = word.strip('\r')
                 if word != "":
                     wordlist.append(word)
+            #Load Blacklist
+            if len(sys.argv > 3):
+                wordlistPath = sys.argv[3]
+                if os.path.isfile(wordlistPath):
+                    wordlistFile = open(wordlistPath, "r")
+                    for word in wordlistFile:
+                        word = word.strip('\n')
+                        word = word.strip('\r')
+                        if word != "":
+                            blacklist.append(word)
+            #Begin Scrapping
             scrap()
         else:
             help("Wordlist could not be found")
@@ -331,10 +352,16 @@ def help(info=""):
     if info != "":
         print("[!] " + info + "\n")
     print("""
-    Usage: tm-scraper.py url wordlist
+    Usage: tm-scraper.py url wordlist blacklist
     
+    Example: tm-scraper.py https://www.trademe.co.nz/a/property/residential/rent/auckland/auckland-city/search?price_min=375 ./wordlist.txt ./blacklist.txt
+    
+    Required: 
     url - a tradme url with your search term/filters
     wordlist - path to wordlist of desired keywords
+    
+    Optional:
+    blacklist - path to wordlist of undesired keywords (optional)
     """)
 
 if __name__ == '__main__':

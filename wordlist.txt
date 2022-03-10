@@ -1,6 +1,14 @@
-This is an example of a wordlist
-Sealed
-Gift
-New
-bedroom
 Unfurnished
+Un-furnished
+Partfurished
+Partlyfurished
+Part furished
+Partly furished
+Part-furished
+Partly-furished
+Non furished
+non-furished
+not furished
+not-furished
+half furished
+half-furished
