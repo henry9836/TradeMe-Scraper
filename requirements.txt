@@ -1,4 +1,3 @@
-asyncio
 selenium
 bs4
 xlwt
